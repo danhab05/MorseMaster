@@ -6,7 +6,7 @@ import { MORSE_DICT, decodeMorse } from './morseUtils';
 // Constants for timing
 const DOT_MAX_DURATION = 300; // ms
 const LETTER_GAP = 600;       // ms (Plus rapide entre les lettres)
-const WORD_GAP = 2500;        // ms (Garde le temps de lire entre les mots)
+const WORD_GAP = 1500;        // ms (Plus fluide entre les mots)
 
 const currentSequence = ref('');
 const isPressing = ref(false);
