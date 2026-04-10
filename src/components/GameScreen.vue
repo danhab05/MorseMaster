@@ -107,6 +107,8 @@ async function selectAnswer(letter: string) {
   isCorrect.value = letter === currentLetter.value;
 
   recordAnswer(currentLetter.value, isCorrect.value, hintUsed.value, replayCount.value);
+  if (isCorrect.value) morseAudio.playCorrect();
+  else morseAudio.playWrong();
   questionIndex.value++;
 
   const waitMs = isCorrect.value ? 600 : 1200;

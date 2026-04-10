@@ -37,6 +37,50 @@ export class MorseAudio {
     }
   }
 
+  playCorrect() {
+    this.init();
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx;
+    const t = ctx.currentTime;
+
+    // Two quick ascending tones — pleasant "ding ding"
+    [[880, 0, 0.06], [1320, 0.07, 0.12]].forEach(([freq, start, end]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t + start);
+      gain.gain.setValueAtTime(0, t + start);
+      gain.gain.linearRampToValueAtTime(0.18, t + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + end);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t + start);
+      osc.stop(t + end + 0.01);
+    });
+  }
+
+  playWrong() {
+    this.init();
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx;
+    const t = ctx.currentTime;
+
+    // Low buzz — two short descending tones
+    [[220, 0, 0.08], [180, 0.1, 0.22]].forEach(([freq, start, end]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, t + start);
+      gain.gain.setValueAtTime(0, t + start);
+      gain.gain.linearRampToValueAtTime(0.12, t + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + end);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t + start);
+      osc.stop(t + end + 0.01);
+    });
+  }
+
   playSequence(sequence: string, dotDuration: number = 100) {
     this.init();
     if (!this.audioCtx || !this.gainNode) return;
