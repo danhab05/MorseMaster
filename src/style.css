@@ -1,1 +1,56 @@
-/* Empty style file */
+:root {
+  --primary: #00ff41;
+  --primary-dim: rgba(0, 255, 65, 0.6);
+  --primary-glow: rgba(0, 255, 65, 0.25);
+  --danger: #ff4444;
+  --warning: #ffaa00;
+  --bg: #0a0a0a;
+  --surface: #161616;
+  --surface2: #1e1e1e;
+  --border: #2a2a2a;
+  --text: #e0e0e0;
+  --text-dim: #777;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Courier New', Courier, monospace;
+  background-color: var(--bg);
+  color: var(--text);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.back-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  padding: 0.5rem 0.3rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 70px;
+}
+
+.back-btn:hover {
+  color: var(--primary);
+}
+
+.star-on { color: var(--warning); }
+.star-off { color: var(--border); }
