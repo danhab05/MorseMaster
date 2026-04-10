@@ -1,107 +1,94 @@
 import { reactive, watch } from 'vue';
-import { LEVELS } from './morseUtils';
+import { LESSONS, TOTAL_LESSONS } from './morseUtils';
 
-export interface LetterStat {
+export interface LetterProgress {
+  fill: number;       // 0-100, fills based on correct answers
+  attempts: number;
   correct: number;
-  total: number;
 }
 
 export interface StoreState {
-  letters: Record<string, LetterStat>;
-  unlockedLevels: number[];
+  letters: Record<string, LetterProgress>;
+  unlockedLesson: number; // max lesson id unlocked
+  totalXP: number;
   streak: number;
   bestStreak: number;
-  totalScore: number;
 }
 
-const STORAGE_KEY = 'morsemaster_v1';
+const KEY = 'mm_v2';
 
 function defaultState(): StoreState {
   return {
     letters: {},
-    unlockedLevels: [1],
+    unlockedLesson: 1,
+    totalXP: 0,
     streak: 0,
     bestStreak: 0,
-    totalScore: 0,
   };
 }
 
-function loadState(): StoreState {
+function load(): StoreState {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return { ...defaultState(), ...JSON.parse(saved) };
+    const s = localStorage.getItem(KEY);
+    if (s) return { ...defaultState(), ...JSON.parse(s) };
   } catch {}
   return defaultState();
 }
 
-export const store = reactive<StoreState>(loadState());
+export const store = reactive<StoreState>(load());
 
-watch(() => store, (val) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(val));
-}, { deep: true });
+watch(() => store, v => localStorage.setItem(KEY, JSON.stringify(v)), { deep: true });
 
-export function getLetterStat(letter: string): LetterStat {
-  if (!store.letters[letter]) store.letters[letter] = { correct: 0, total: 0 };
+export function getLetter(letter: string): LetterProgress {
+  if (!store.letters[letter]) store.letters[letter] = { fill: 0, attempts: 0, correct: 0 };
   return store.letters[letter];
 }
 
-export function getStars(letter: string): number {
-  const s = store.letters[letter];
-  if (!s || s.correct === 0) return 0;
-  if (s.correct >= 5) return 3;
-  if (s.correct >= 3) return 2;
-  return 1;
+export function getFill(letter: string): number {
+  return store.letters[letter]?.fill ?? 0;
 }
 
-export function isMastered(letter: string): boolean {
-  return getStars(letter) === 3;
-}
-
-export function getLevelProgress(levelId: number): { mastered: number; total: number } {
-  const level = LEVELS.find(l => l.id === levelId);
-  if (!level) return { mastered: 0, total: 0 };
-  return {
-    mastered: level.letters.filter(l => isMastered(l)).length,
-    total: level.letters.length,
-  };
-}
-
-export function isLevelUnlocked(levelId: number): boolean {
-  return store.unlockedLevels.includes(levelId);
-}
-
-export function recordAnswer(letter: string, correct: boolean) {
-  const stat = getLetterStat(letter);
-  stat.total++;
+// Record an answer. hintUsed reduces fill gain, fast answers boost it.
+export function recordAnswer(letter: string, correct: boolean, hintUsed: boolean, replayCount: number) {
+  const p = getLetter(letter);
+  p.attempts++;
   if (correct) {
-    stat.correct++;
+    p.correct++;
     store.streak++;
     if (store.streak > store.bestStreak) store.bestStreak = store.streak;
-    store.totalScore += 10 + Math.min(store.streak * 2, 30);
+    // Fill gain: base 20, -5 per hint, -3 per replay, min 5
+    const gain = Math.max(5, 20 - (hintUsed ? 8 : 0) - replayCount * 3);
+    p.fill = Math.min(100, p.fill + gain);
+    store.totalXP += Math.round(gain / 2);
   } else {
     store.streak = 0;
+    p.fill = Math.max(0, p.fill - 10);
   }
-  _checkUnlocks();
 }
 
-function _checkUnlocks() {
-  for (let i = 0; i < LEVELS.length - 1; i++) {
-    const level = LEVELS[i];
-    const nextId = level.id + 1;
-    if (!store.unlockedLevels.includes(nextId)) {
-      const mastered = level.letters.filter(l => isMastered(l)).length;
-      if (mastered >= Math.ceil(level.letters.length * 0.7)) {
-        store.unlockedLevels.push(nextId);
-      }
-    }
+export function isLessonUnlocked(lessonId: number): boolean {
+  return lessonId <= store.unlockedLesson;
+}
+
+// Returns true if lesson can be advanced (enough fill on new letters)
+export function checkAdvance(lessonId: number): boolean {
+  const lesson = LESSONS.find(l => l.id === lessonId);
+  if (!lesson) return false;
+  const avg = lesson.newLetters.reduce((a, l) => a + getFill(l), 0) / 2;
+  return avg >= 80;
+}
+
+export function unlockNextLesson(currentId: number) {
+  if (currentId < TOTAL_LESSONS && store.unlockedLesson === currentId) {
+    store.unlockedLesson = currentId + 1;
   }
 }
 
 export function resetProgress() {
-  const fresh = defaultState();
-  store.letters = fresh.letters;
-  store.unlockedLevels = fresh.unlockedLevels;
-  store.streak = fresh.streak;
-  store.bestStreak = fresh.bestStreak;
-  store.totalScore = fresh.totalScore;
+  const d = defaultState();
+  store.letters = d.letters;
+  store.unlockedLesson = d.unlockedLesson;
+  store.totalXP = d.totalXP;
+  store.streak = d.streak;
+  store.bestStreak = d.bestStreak;
 }

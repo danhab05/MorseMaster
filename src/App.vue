@@ -1,40 +1,51 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import HomeScreen from './components/HomeScreen.vue';
-import LearnMode from './components/LearnMode.vue';
-import QuizMode from './components/QuizMode.vue';
+import GameScreen from './components/GameScreen.vue';
 import FreeMode from './components/FreeMode.vue';
 
-type Screen = 'home' | 'learn' | 'quiz' | 'free';
+type Screen = 'home' | 'game' | 'free';
 
 const screen = ref<Screen>('home');
-const quizLevel = ref(1);
+const activeLesson = ref(1);
 
-function goQuiz(level: number) {
-  quizLevel.value = level;
-  screen.value = 'quiz';
+function goLesson(id: number) {
+  activeLesson.value = id;
+  screen.value = 'game';
+}
+
+function onLessonDone() {
+  // Go to next lesson or home
+  activeLesson.value = Math.min(activeLesson.value + 1, 13);
+  screen.value = 'game';
 }
 </script>
 
 <template>
-  <HomeScreen
-    v-if="screen === 'home'"
-    @go-learn="screen = 'learn'"
-    @go-quiz="goQuiz"
-    @go-free="screen = 'free'"
-  />
-  <LearnMode
-    v-else-if="screen === 'learn'"
-    @back="screen = 'home'"
-    @go-quiz="goQuiz"
-  />
-  <QuizMode
-    v-else-if="screen === 'quiz'"
-    :level-id="quizLevel"
-    @back="screen = 'home'"
-  />
-  <FreeMode
-    v-else-if="screen === 'free'"
-    @back="screen = 'home'"
-  />
+  <Transition name="screen">
+    <HomeScreen
+      v-if="screen === 'home'"
+      @go-lesson="goLesson"
+      @go-free="screen = 'free'"
+    />
+    <GameScreen
+      v-else-if="screen === 'game'"
+      :lesson-id="activeLesson"
+      @back="screen = 'home'"
+      @lesson-done="onLessonDone"
+    />
+    <FreeMode
+      v-else-if="screen === 'free'"
+      @back="screen = 'home'"
+    />
+  </Transition>
 </template>
+
+<style>
+.screen-enter-active, .screen-leave-active {
+  transition: opacity 0.18s ease;
+}
+.screen-enter-from, .screen-leave-to {
+  opacity: 0;
+}
+</style>

@@ -1,120 +1,104 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { LEVELS } from '../morseUtils';
-import { store, getLevelProgress, isLevelUnlocked, getStars, resetProgress } from '../store';
+import { LESSONS, MORSE_DICT } from '../morseUtils';
+import { store, getFill, isLessonUnlocked, resetProgress } from '../store';
 
 const emit = defineEmits<{
-  'go-learn': [];
-  'go-quiz': [level: number];
+  'go-lesson': [id: number];
   'go-free': [];
 }>();
 
-const showResetConfirm = ref(false);
+const showReset = ref(false);
 
-const totalMastered = computed(() =>
-  LEVELS.reduce((acc, level) => acc + getLevelProgress(level.id).mastered, 0)
-);
-const totalLetters = computed(() =>
-  LEVELS.reduce((acc, level) => acc + level.letters.length, 0)
+const completedCount = computed(() =>
+  Object.values(store.letters).filter(l => l.fill >= 100).length
 );
 
-function confirmReset() {
-  resetProgress();
-  showResetConfirm.value = false;
-}
+function doReset() { resetProgress(); showReset.value = false; }
 </script>
 
 <template>
   <div class="home">
-    <header class="home-header">
-      <div class="title-wrap">
-        <h1 class="title">MORSE<span class="title-dim">MASTER</span></h1>
-      </div>
-      <div class="stats-bar">
-        <div class="stat">
-          <span class="stat-value">{{ store.totalScore }}</span>
-          <span class="stat-label">SCORE</span>
-        </div>
-        <div class="stat streak-stat" :class="{ active: store.streak > 0 }">
-          <span class="stat-value">{{ store.streak }}</span>
-          <span class="stat-label">STREAK</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value">{{ totalMastered }}<span class="stat-sub">/{{ totalLetters }}</span></span>
-          <span class="stat-label">MAITRISÉES</span>
-        </div>
-      </div>
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="app-name">Morse<span class="app-name-accent">Master</span></div>
+      <div class="xp-pill">⚡ {{ store.totalXP }}</div>
     </header>
 
-    <main class="home-main">
-      <section class="section">
-        <div class="section-title">NIVEAUX</div>
-        <div class="levels-list">
-          <div
-            v-for="level in LEVELS"
-            :key="level.id"
-            class="level-card"
-            :class="{
-              locked: !isLevelUnlocked(level.id),
-              completed: getLevelProgress(level.id).mastered === level.letters.length
-            }"
-            @click="isLevelUnlocked(level.id) && emit('go-quiz', level.id)"
-          >
-            <div class="level-num">{{ level.id }}</div>
-            <div class="level-body">
-              <div class="level-name">{{ level.name }}</div>
-              <div class="level-sub">{{ level.description }}</div>
-              <div class="level-dots">
-                <span
-                  v-for="letter in level.letters"
-                  :key="letter"
-                  class="ldot"
-                  :class="{ m1: getStars(letter) >= 1, m3: getStars(letter) >= 3 }"
-                ></span>
-              </div>
-            </div>
-            <div class="level-right">
-              <template v-if="isLevelUnlocked(level.id)">
-                <div class="level-count">
-                  {{ getLevelProgress(level.id).mastered }}/{{ level.letters.length }}
-                </div>
-                <div class="play-circle">▶</div>
-              </template>
-              <div v-else class="lock-badge">VERR.</div>
+    <!-- Stats row -->
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-val">{{ completedCount }}</div>
+        <div class="stat-lbl">lettres</div>
+      </div>
+      <div class="stat-box" :class="{ 'streak-active': store.streak >= 3 }">
+        <div class="stat-val">{{ store.streak }}</div>
+        <div class="stat-lbl">streak</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val">{{ store.bestStreak }}</div>
+        <div class="stat-lbl">meilleur</div>
+      </div>
+    </div>
+
+    <!-- Lesson list -->
+    <div class="section-label">LEÇONS</div>
+    <div class="lesson-list">
+      <div
+        v-for="lesson in LESSONS"
+        :key="lesson.id"
+        class="lesson-row"
+        :class="{
+          unlocked: isLessonUnlocked(lesson.id),
+          locked: !isLessonUnlocked(lesson.id),
+          active: lesson.id === store.unlockedLesson,
+        }"
+        @click="isLessonUnlocked(lesson.id) && emit('go-lesson', lesson.id)"
+      >
+        <!-- Number bubble -->
+        <div class="lesson-num" :class="{ done: lesson.newLetters.every(l => getFill(l) >= 100) }">
+          <span v-if="lesson.newLetters.every(l => getFill(l) >= 100)">✓</span>
+          <span v-else>{{ lesson.id }}</span>
+        </div>
+
+        <!-- New letters preview -->
+        <div class="lesson-letters">
+          <div v-for="letter in lesson.newLetters" :key="letter" class="ll-item">
+            <span class="ll-char">{{ letter }}</span>
+            <span class="ll-code">{{ MORSE_DICT[letter] }}</span>
+            <!-- mini progress bar -->
+            <div class="ll-bar">
+              <div class="ll-bar-fill" :style="{ width: getFill(letter) + '%' }"></div>
             </div>
           </div>
         </div>
-      </section>
 
-      <section class="section">
-        <div class="section-title">AUTRES MODES</div>
-        <div class="mode-row">
-          <button class="mode-card" @click="emit('go-learn')">
-            <div class="mode-icon-big">A</div>
-            <div class="mode-name">Apprendre</div>
-            <div class="mode-hint">Référence alphabet</div>
-          </button>
-          <button class="mode-card" @click="emit('go-free')">
-            <div class="mode-icon-big">•—</div>
-            <div class="mode-name">Mode libre</div>
-            <div class="mode-hint">Taper du Morse</div>
-          </button>
+        <!-- Pool size + arrow -->
+        <div class="lesson-right">
+          <div class="pool-hint">{{ lesson.pool.length }} lettres</div>
+          <div v-if="isLessonUnlocked(lesson.id)" class="arrow">›</div>
+          <div v-else class="lock-ico">🔒</div>
         </div>
-      </section>
-
-      <div class="reset-zone">
-        <button class="reset-link" @click="showResetConfirm = true">Réinitialiser la progression</button>
       </div>
-    </main>
+    </div>
 
-    <!-- Confirm reset modal -->
-    <div v-if="showResetConfirm" class="modal-overlay" @click.self="showResetConfirm = false">
+    <!-- Bottom buttons -->
+    <div class="bottom-row">
+      <button class="btn-free" @click="emit('go-free')">
+        ·— Mode libre
+      </button>
+      <button class="btn-reset" @click="showReset = true">Reset</button>
+    </div>
+
+    <!-- Reset modal -->
+    <div v-if="showReset" class="overlay" @click.self="showReset = false">
       <div class="modal">
         <div class="modal-title">Réinitialiser ?</div>
-        <div class="modal-body">Toute la progression sera effacée.</div>
-        <div class="modal-actions">
-          <button class="modal-cancel" @click="showResetConfirm = false">Annuler</button>
-          <button class="modal-confirm" @click="confirmReset">Confirmer</button>
+        <div class="modal-sub">Toute la progression sera perdue.</div>
+        <div class="modal-row">
+          <button class="modal-cancel" @click="showReset = false">Annuler</button>
+          <button class="modal-ok" @click="doReset">Confirmer</button>
         </div>
       </div>
     </div>
@@ -123,309 +107,264 @@ function confirmReset() {
 
 <style scoped>
 .home {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  max-width: 600px;
+  max-width: 480px;
   margin: 0 auto;
-  padding: 1rem;
-  gap: 1.5rem;
-  padding-bottom: 2rem;
-}
-
-.home-header {
+  padding: 0 0 5rem;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* Topbar */
+.topbar {
+  display: flex;
   align-items: center;
-  gap: 1rem;
-  padding-top: 0.5rem;
+  justify-content: space-between;
+  padding: 1.1rem 1.2rem 0.6rem;
 }
 
-.title {
-  margin: 0;
-  font-size: 2rem;
-  letter-spacing: 5px;
-  color: var(--primary);
-  text-shadow: 0 0 24px var(--primary-glow);
-}
-
-.title-dim {
+.app-name {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
   color: var(--text);
-  opacity: 0.5;
 }
 
-.stats-bar {
+.app-name-accent { color: var(--accent); }
+
+.xp-pill {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+}
+
+/* Stats */
+.stats-row {
   display: flex;
-  justify-content: center;
-  gap: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
-  width: 100%;
+  gap: 0.6rem;
+  padding: 0.5rem 1.2rem 1.2rem;
 }
 
-.stat {
+.stat-box {
   flex: 1;
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 0.8rem 0.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0.7rem 0.5rem;
   gap: 0.2rem;
-  border-right: 1px solid var(--border);
+  border: 1px solid var(--border);
 }
 
-.stat:last-child {
-  border-right: none;
+.stat-box.streak-active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
 }
 
-.stat-value {
-  font-size: 1.3rem;
-  font-weight: bold;
-  color: var(--primary);
+.stat-box.streak-active .stat-val { color: var(--accent); }
+
+.stat-val {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text);
   line-height: 1;
 }
 
-.stat-sub {
-  font-size: 0.8rem;
-  opacity: 0.5;
-}
-
-.stat-label {
-  font-size: 0.55rem;
+.stat-lbl {
+  font-size: 0.6rem;
   color: var(--text-dim);
-  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
-.streak-stat.active .stat-value {
-  color: var(--warning);
+/* Section label */
+.section-label {
+  font-size: 0.6rem;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  padding: 0 1.2rem 0.5rem;
 }
 
-.section {
+/* Lesson list */
+.lesson-list {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.5rem;
+  padding: 0 1.2rem;
+  flex: 1;
 }
 
-.section-title {
-  font-size: 0.65rem;
-  letter-spacing: 2.5px;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.4rem;
-}
-
-.levels-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.level-card {
+.lesson-row {
   display: flex;
   align-items: center;
   gap: 0.9rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 0.9rem 1rem;
-  cursor: pointer;
-  transition: border-color 0.15s, transform 0.1s;
-  -webkit-tap-highlight-color: transparent;
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  transition: transform 0.1s;
 }
 
-.level-card:not(.locked):active {
-  transform: scale(0.98);
-  border-color: var(--primary);
-}
+.lesson-row.unlocked { cursor: pointer; }
+.lesson-row.locked { opacity: 0.35; cursor: default; }
+.lesson-row.active { border-color: var(--accent); }
+.lesson-row.unlocked:active { transform: scale(0.97); }
 
-.level-card.completed {
-  border-color: rgba(0, 255, 65, 0.3);
-}
-
-.level-card.locked {
-  opacity: 0.38;
-  cursor: default;
-}
-
-.level-num {
+/* Lesson number bubble */
+.lesson-num {
   width: 38px;
   height: 38px;
-  border: 2px solid var(--primary);
   border-radius: 50%;
+  border: 2px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
-  font-weight: bold;
-  color: var(--primary);
+  font-size: 0.95rem;
+  font-weight: 700;
   flex-shrink: 0;
+  color: var(--text-dim);
 }
 
-.level-body {
+.lesson-num.done {
+  background: var(--green);
+  border-color: var(--green);
+  color: #000;
+}
+
+/* New letters */
+.lesson-letters {
   flex: 1;
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  gap: 1rem;
 }
 
-.level-name {
-  font-size: 0.95rem;
-  font-weight: bold;
-}
-
-.level-sub {
-  font-size: 0.7rem;
-  color: var(--text-dim);
-}
-
-.level-dots {
-  display: flex;
-  gap: 3px;
-  margin-top: 0.3rem;
-  flex-wrap: wrap;
-}
-
-.ldot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--border);
-  transition: background 0.2s;
-}
-
-.ldot.m1 { background: rgba(0, 255, 65, 0.4); }
-.ldot.m3 { background: var(--primary); }
-
-.level-right {
+.ll-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.15rem;
+  min-width: 36px;
+}
+
+.ll-char {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+}
+
+.ll-code {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+  letter-spacing: 2px;
+}
+
+.ll-bar {
+  width: 36px;
+  height: 3px;
+  background: var(--ring-bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ll-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+/* Right side */
+.lesson-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
   flex-shrink: 0;
 }
 
-.level-count {
-  font-size: 0.7rem;
-  color: var(--text-dim);
+.pool-hint {
+  font-size: 0.65rem;
+  color: var(--text-muted);
 }
 
-.play-circle {
-  width: 34px;
-  height: 34px;
-  background: var(--primary);
-  color: #000;
-  border-radius: 50%;
+.arrow {
+  font-size: 1.4rem;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.lock-ico { font-size: 0.9rem; }
+
+/* Bottom */
+.bottom-row {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
+  gap: 0.5rem;
+  padding: 0.8rem 1.2rem;
+  background: linear-gradient(to top, var(--bg) 80%, transparent);
+  max-width: 480px;
+  margin: 0 auto;
 }
 
-.lock-badge {
-  font-size: 0.55rem;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  padding: 0.25rem 0.4rem;
-  border-radius: 4px;
-  letter-spacing: 1px;
+.btn-free {
+  flex: 1;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  padding: 0.9rem;
+  border-radius: 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
-.mode-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.7rem;
-}
+.btn-free:active { opacity: 0.85; transform: scale(0.97); }
 
-.mode-card {
+.btn-reset {
   background: var(--surface);
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--text-dim);
+  padding: 0.9rem 1rem;
   border-radius: 14px;
-  padding: 1.1rem 0.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-  transition: border-color 0.15s;
-}
-
-.mode-card:active {
-  border-color: var(--primary);
-}
-
-.mode-icon-big {
-  font-size: 1.4rem;
-  font-weight: bold;
-  color: var(--primary);
-  letter-spacing: 3px;
-}
-
-.mode-name {
   font-size: 0.85rem;
-  font-weight: bold;
-}
-
-.mode-hint {
-  font-size: 0.65rem;
-  color: var(--text-dim);
-}
-
-.reset-zone {
-  display: flex;
-  justify-content: center;
-  margin-top: 0.5rem;
-}
-
-.reset-link {
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  font-size: 0.7rem;
-  text-decoration: underline;
-  opacity: 0.5;
-}
-
-.reset-link:hover {
-  opacity: 0.8;
 }
 
 /* Modal */
-.modal-overlay {
+.overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0,0,0,0.75);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 200;
-  padding: 1rem;
+  padding: 1.2rem;
 }
 
 .modal {
   background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 20px;
   padding: 2rem 1.5rem;
-  width: 100%;
   max-width: 300px;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.6rem;
 }
 
-.modal-title {
-  font-size: 1.1rem;
-  font-weight: bold;
-  color: var(--danger);
-}
+.modal-title { font-size: 1.1rem; font-weight: 700; }
+.modal-sub { font-size: 0.85rem; color: var(--text-dim); }
 
-.modal-body {
-  font-size: 0.85rem;
-  color: var(--text-dim);
-}
-
-.modal-actions {
+.modal-row {
   display: flex;
   gap: 0.6rem;
   margin-top: 0.5rem;
@@ -436,19 +375,19 @@ function confirmReset() {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 0.7rem;
-  border-radius: 10px;
-  font-family: inherit;
+  padding: 0.75rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
 }
 
-.modal-confirm {
+.modal-ok {
   flex: 1;
-  background: var(--danger);
+  background: var(--red);
   border: none;
   color: #fff;
-  padding: 0.7rem;
-  border-radius: 10px;
-  font-family: inherit;
-  font-weight: bold;
+  padding: 0.75rem;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.9rem;
 }
 </style>

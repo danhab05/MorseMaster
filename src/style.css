@@ -1,56 +1,47 @@
 :root {
-  --primary: #00ff41;
-  --primary-dim: rgba(0, 255, 65, 0.6);
-  --primary-glow: rgba(0, 255, 65, 0.25);
-  --danger: #ff4444;
-  --warning: #ffaa00;
-  --bg: #0a0a0a;
-  --surface: #161616;
-  --surface2: #1e1e1e;
-  --border: #2a2a2a;
-  --text: #e0e0e0;
-  --text-dim: #777;
+  --bg: #181818;
+  --surface: #242424;
+  --surface2: #2e2e2e;
+  --border: #383838;
+  --text: #f0f0f0;
+  --text-dim: #888;
+  --text-muted: #555;
+  --accent: #f5c542;        /* yellow — MorseMania primary */
+  --accent-dim: rgba(245,197,66,0.18);
+  --green: #4cda64;
+  --green-dim: rgba(76,218,100,0.15);
+  --red: #ff453a;
+  --red-dim: rgba(255,69,58,0.15);
+  --ring-bg: #333;
+  --radius: 14px;
 }
 
-*, *::before, *::after {
-  box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: 'Courier New', Courier, monospace;
-  background-color: var(--bg);
+  background: var(--bg);
   color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  user-select: none;
 }
 
-#app {
-  min-height: 100vh;
-}
+#app { min-height: 100vh; }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
-}
+button { font-family: inherit; cursor: pointer; }
 
-.back-btn {
-  background: transparent;
+.btn-back {
+  background: none;
   border: none;
   color: var(--text-dim);
-  font-size: 0.85rem;
-  padding: 0.5rem 0.3rem;
-  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.5rem;
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  min-width: 70px;
+  min-width: 60px;
 }
-
-.back-btn:hover {
-  color: var(--primary);
-}
-
-.star-on { color: var(--warning); }
-.star-off { color: var(--border); }
+.btn-back:active { color: var(--text); }

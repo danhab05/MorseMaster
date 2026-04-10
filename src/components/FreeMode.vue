@@ -45,7 +45,7 @@ function scheduleGap() {
 }
 
 function onKeyDown(e: KeyboardEvent) { if (e.code === 'Space') startPress(e); }
-function onKeyUp(e: KeyboardEvent)   { if (e.code === 'Space') stopPress(e); }
+function onKeyUp(e: KeyboardEvent) { if (e.code === 'Space') stopPress(e); }
 
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown);
@@ -62,26 +62,22 @@ const decoded = computed(() => decodeMorse(sequence.value));
 <template>
   <div class="free">
 
-    <!-- Header -->
-    <div class="free-header">
-      <button class="back-btn" @click="emit('back')">← Retour</button>
-      <span class="header-title">MODE LIBRE</span>
-      <div style="width:70px"></div>
+    <div class="header">
+      <button class="btn-back" @click="emit('back')">‹ Retour</button>
+      <span class="header-title">Mode libre</span>
+      <div style="width:60px"></div>
     </div>
 
-    <div class="free-body">
-
-      <!-- Screen -->
+    <div class="body">
       <div class="screen">
-        <div class="morse-seq">{{ sequence || '...' }}</div>
+        <div class="seq">{{ sequence || '···' }}</div>
         <div class="decoded">{{ decoded || '—' }}</div>
       </div>
-      <button class="clear-btn" @click="sequence = ''">Effacer</button>
+      <button class="clear" @click="sequence = ''">Effacer</button>
 
-      <!-- Tap button -->
-      <div class="tap-zone">
+      <div class="tap-wrap">
         <div
-          class="tap-btn"
+          class="tap"
           :class="{ active: pressing }"
           @mousedown="startPress"
           @mouseup="stopPress"
@@ -91,28 +87,25 @@ const decoded = computed(() => decodeMorse(sequence.value));
           @touchcancel.prevent="stopPress"
         >
           <div class="tap-label">TAPPER</div>
-          <div class="tap-hint">court = •   long = ━</div>
+          <div class="tap-sub">court • &nbsp; long —</div>
         </div>
       </div>
 
-      <div class="timing-hint">
-        Court &lt; {{ DOT_MAX_MS }}ms &nbsp;|&nbsp; Long &gt; {{ DOT_MAX_MS }}ms
-      </div>
-
+      <div class="hint">Espace = tapper • Maintenir = tiret</div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .free {
-  min-height: 100vh;
-  max-width: 600px;
+  max-width: 480px;
   margin: 0 auto;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-.free-header {
+.header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -121,77 +114,78 @@ const decoded = computed(() => decodeMorse(sequence.value));
 }
 
 .header-title {
-  font-size: 0.65rem;
-  letter-spacing: 2.5px;
+  font-size: 0.8rem;
+  font-weight: 700;
   color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 2px;
 }
 
-.free-body {
+.body {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 1.5rem 1rem 2rem;
-  gap: 1rem;
+  padding: 1.5rem 1.2rem 2rem;
+  gap: 0.8rem;
 }
 
 .screen {
   width: 100%;
   background: #000;
-  border: 2px solid var(--primary);
-  border-radius: 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
   padding: 1.5rem;
-  min-height: 130px;
+  min-height: 120px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  box-shadow: 0 0 22px var(--primary-glow);
   text-align: center;
+  gap: 0.5rem;
 }
 
-.morse-seq {
-  font-size: 1rem;
-  color: var(--primary);
-  opacity: 0.55;
+.seq {
+  font-size: 0.9rem;
+  color: var(--text-muted);
   word-break: break-all;
-  min-height: 1.4rem;
-  margin-bottom: 0.6rem;
   letter-spacing: 2px;
+  font-family: 'Courier New', monospace;
+  min-height: 1.3rem;
 }
 
 .decoded {
-  font-size: 2.2rem;
-  font-weight: bold;
-  color: var(--primary);
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: var(--text);
   word-break: break-all;
   text-transform: uppercase;
-  min-height: 2.5rem;
+  min-height: 3rem;
+  line-height: 1.1;
 }
 
-.clear-btn {
+.clear {
   align-self: flex-end;
   background: transparent;
-  border: 1px solid #ff4400;
-  color: #ff4400;
-  padding: 0.35rem 0.9rem;
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.3rem 0.8rem;
+  border-radius: 8px;
   font-size: 0.75rem;
-  font-family: inherit;
 }
 
-.tap-zone {
+.tap-wrap {
   display: flex;
   justify-content: center;
-  padding: 1.5rem 0;
+  padding: 1.8rem 0;
 }
 
-.tap-btn {
-  width: 190px;
-  height: 190px;
+.tap {
+  width: 200px;
+  height: 200px;
   border-radius: 50%;
   background: var(--surface);
-  border: 4px solid var(--primary);
+  border: 3px solid var(--accent);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -200,48 +194,38 @@ const decoded = computed(() => decodeMorse(sequence.value));
   cursor: pointer;
   user-select: none;
   transition: all 0.08s;
-  box-shadow: 0 0 16px var(--primary-glow);
-  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 0 0 0 rgba(245,197,66,0);
 }
 
-.tap-btn.active {
-  background: var(--primary);
+.tap.active {
+  background: var(--accent);
   transform: scale(0.91);
-  box-shadow: 0 0 36px var(--primary);
+  box-shadow: 0 0 30px rgba(245,197,66,0.35);
 }
 
-.tap-btn.active .tap-label,
-.tap-btn.active .tap-hint {
-  color: #000;
-}
+.tap.active .tap-label,
+.tap.active .tap-sub { color: #000; }
 
 .tap-label {
-  font-size: 1.6rem;
-  font-weight: bold;
-  color: var(--primary);
-  letter-spacing: 2px;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 3px;
 }
 
-.tap-hint {
-  font-size: 0.72rem;
-  color: #666;
-  letter-spacing: 1px;
-}
-
-.timing-hint {
-  font-size: 0.7rem;
+.tap-sub {
+  font-size: 0.75rem;
   color: var(--text-dim);
-  opacity: 0.5;
 }
 
-@media (max-width: 380px) {
-  .tap-btn {
-    width: 155px;
-    height: 155px;
-  }
+.hint {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+}
 
-  .decoded {
-    font-size: 1.8rem;
-  }
+@media (max-width: 360px) {
+  .tap { width: 160px; height: 160px; }
+  .decoded { font-size: 2rem; }
 }
 </style>

@@ -8,57 +8,44 @@ export const MORSE_DICT: Record<string, string> = {
   '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.'
 };
 
-export const REVERSE_MORSE_DICT: Record<string, string> = Object.entries(MORSE_DICT).reduce(
-  (acc, [key, val]) => ({ ...acc, [val]: key }),
-  {}
+export const REVERSE_MORSE: Record<string, string> = Object.fromEntries(
+  Object.entries(MORSE_DICT).map(([k, v]) => [v, k])
 );
 
 export function decodeMorse(morse: string): string {
-  return morse
-    .trim()
+  return morse.trim()
     .split('   ')
-    .map((word) =>
-      word
-        .split(' ')
-        .map((char) => REVERSE_MORSE_DICT[char] || '?')
-        .join('')
-    )
+    .map(word => word.split(' ').map(c => REVERSE_MORSE[c] || '?').join(''))
     .join(' ');
 }
 
-export interface Level {
-  id: number;
-  name: string;
-  description: string;
-  letters: string[];
-}
-
-export const LEVELS: Level[] = [
-  {
-    id: 1,
-    name: 'Les bases',
-    description: '2 lettres pour commencer',
-    letters: ['E', 'T'],
-  },
-  {
-    id: 2,
-    name: 'Premiers pas',
-    description: 'Lettres courtes',
-    letters: ['I', 'A', 'N', 'M'],
-  },
-  {
-    id: 3,
-    name: 'En route',
-    description: 'On accélère',
-    letters: ['S', 'U', 'R', 'W', 'D', 'K', 'G', 'O'],
-  },
-  {
-    id: 4,
-    name: 'Expert',
-    description: 'Toutes les lettres',
-    letters: ['H', 'V', 'F', 'L', 'P', 'J', 'B', 'X', 'C', 'Y', 'Z', 'Q'],
-  },
+// MorseMania letter introduction order: pairs by complexity
+const PAIRS: [string, string][] = [
+  ['E', 'T'],
+  ['A', 'N'],
+  ['I', 'M'],
+  ['S', 'O'],
+  ['D', 'U'],
+  ['R', 'K'],
+  ['G', 'W'],
+  ['H', 'V'],
+  ['F', 'L'],
+  ['P', 'J'],
+  ['B', 'X'],
+  ['C', 'Y'],
+  ['Z', 'Q'],
 ];
 
-// All letters sorted by difficulty (for distractor pool)
-export const LETTERS_BY_DIFFICULTY: string[] = LEVELS.flatMap(l => l.letters);
+export interface Lesson {
+  id: number;
+  newLetters: [string, string];
+  pool: string[]; // all letters known at this lesson
+}
+
+export const LESSONS: Lesson[] = PAIRS.map((pair, idx) => ({
+  id: idx + 1,
+  newLetters: pair,
+  pool: PAIRS.slice(0, idx + 1).flat(),
+}));
+
+export const TOTAL_LESSONS = LESSONS.length;
