@@ -7,32 +7,56 @@ import { morseAudio } from '../audio';
 const props = defineProps<{ lessonId: number }>();
 const emit = defineEmits<{ back: []; 'lesson-done': [] }>();
 
-// ─── State ────────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+const ROUND_Q    = 10;
+const CHALLENGE_Q = 15;
+const MAX_LIVES  = 3;
+const RING_R     = 26;
+const RING_CIRC  = 2 * Math.PI * RING_R;
+
+// ─── Lesson ───────────────────────────────────────────────────────────────────
 const lesson = computed(() => LESSONS.find(l => l.id === props.lessonId)!);
 
-type Phase = 'intro' | 'quiz' | 'result' | 'levelup';
+// ─── Phase ────────────────────────────────────────────────────────────────────
+type Phase = 'intro' | 'quiz' | 'result'
+           | 'challenge-intro' | 'challenge' | 'challenge-fail' | 'levelup';
 const phase = ref<Phase>('intro');
 
-const currentLetter = ref('');
-const shuffledPool = ref<string[]>([]);
-const answered = ref(false);
+// ─── Shared quiz/challenge state ──────────────────────────────────────────────
+const currentLetter  = ref('');
+const shuffledPool   = ref<string[]>([]);
+const answered       = ref(false);
 const selectedLetter = ref('');
-const isCorrect = ref(false);
-const hintUsed = ref(false);
-const replayCount = ref(0);
-const isPlaying = ref(false);
-const playingSymbols = ref<string[]>([]);  // animated dots/dashes during playback
-const questionIndex = ref(0);
-const ROUND_Q = 10;
+const isCorrect      = ref(false);
+const isPlaying      = ref(false);
+const playingSymbols = ref<string[]>([]);
 
-// ─── Pool & Letter picking ────────────────────────────────────────────────────
+// ─── Quiz-only state ──────────────────────────────────────────────────────────
+const hintUsed    = ref(false);
+const replayCount = ref(0);
+const questionIdx = ref(0);
+
+// ─── Challenge-only state ─────────────────────────────────────────────────────
+const lives          = ref(MAX_LIVES);
+const challengeIdx   = ref(0);
+const shakingHeart   = ref(false);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function shuffle<T>(arr: T[]): T[] {
   return [...arr].sort(() => Math.random() - 0.5);
 }
 
-function pickLetter(): string {
+function delay(ms: number) {
+  return new Promise<void>(r => setTimeout(r, ms));
+}
+
+function ringOffset(fill: number): number {
+  return RING_CIRC * (1 - fill / 100);
+}
+
+// ─── Weighted pick (quiz) ─────────────────────────────────────────────────────
+function pickWeightedLetter(): string {
   const pool = lesson.value.pool;
-  // Weight: lower fill = higher chance of being picked
   const weights = pool.map(l => Math.max(1, 100 - getFill(l)));
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
@@ -43,46 +67,30 @@ function pickLetter(): string {
   return pool[pool.length - 1];
 }
 
-// ─── Morse animation ─────────────────────────────────────────────────────────
-async function animateAndPlay(letter: string): Promise<void> {
+// ─── Equal pick (challenge) ───────────────────────────────────────────────────
+function pickRandomLetter(): string {
+  const pool = lesson.value.pool;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// ─── Morse animation ──────────────────────────────────────────────────────────
+async function animateAndPlay(letter: string) {
   const seq = MORSE_DICT[letter] || '';
-  const DOT_MS = 120;
-  const DASH_MS = DOT_MS * 3;
-  const SYM_GAP = DOT_MS;
-  const PRE_GAP = 400;
+  const DOT  = 120;
+  const DASH = DOT * 3;
+  const GAP  = DOT;
 
   isPlaying.value = true;
   playingSymbols.value = [];
+  await delay(380);
 
-  await delay(PRE_GAP);
-
-  const syms = seq.split('');
-  for (const s of syms) {
-    const dur = s === '.' ? DOT_MS : DASH_MS;
+  for (const s of seq.split('')) {
+    const dur = s === '.' ? DOT : DASH;
     playingSymbols.value = [...playingSymbols.value, s];
-    morseAudio.playSequence(s, DOT_MS);
-    await delay(dur + SYM_GAP * 2 + 20);
+    morseAudio.playSequence(s, DOT);
+    await delay(dur + GAP * 2 + 20);
   }
-
   isPlaying.value = false;
-}
-
-function delay(ms: number) {
-  return new Promise<void>(r => setTimeout(r, ms));
-}
-
-// ─── Question flow ────────────────────────────────────────────────────────────
-async function nextQuestion() {
-  answered.value = false;
-  selectedLetter.value = '';
-  hintUsed.value = false;
-  replayCount.value = 0;
-  playingSymbols.value = [];
-
-  currentLetter.value = pickLetter();
-  shuffledPool.value = shuffle(lesson.value.pool);
-
-  await animateAndPlay(currentLetter.value);
 }
 
 async function replay() {
@@ -92,96 +100,189 @@ async function replay() {
   await animateAndPlay(currentLetter.value);
 }
 
+// ─── Quiz flow ────────────────────────────────────────────────────────────────
+async function nextQuizQuestion() {
+  answered.value = false;
+  selectedLetter.value = '';
+  hintUsed.value = false;
+  replayCount.value = 0;
+  playingSymbols.value = [];
+
+  currentLetter.value = pickWeightedLetter();
+  shuffledPool.value   = shuffle(lesson.value.pool);
+  await animateAndPlay(currentLetter.value);
+}
+
 function showHint() {
   if (answered.value) return;
   hintUsed.value = true;
-  // Animate hint (show symbols without audio)
   playingSymbols.value = MORSE_DICT[currentLetter.value]?.split('') ?? [];
 }
 
-async function selectAnswer(letter: string) {
+async function selectQuizAnswer(letter: string) {
   if (answered.value || isPlaying.value) return;
-
-  answered.value = true;
+  answered.value    = true;
   selectedLetter.value = letter;
-  isCorrect.value = letter === currentLetter.value;
+  isCorrect.value   = letter === currentLetter.value;
 
   recordAnswer(currentLetter.value, isCorrect.value, hintUsed.value, replayCount.value);
   if (isCorrect.value) morseAudio.playCorrect();
-  else morseAudio.playWrong();
-  questionIndex.value++;
+  else                 morseAudio.playWrong();
 
-  const waitMs = isCorrect.value ? 600 : 1200;
-  await delay(waitMs);
+  questionIdx.value++;
+  await delay(isCorrect.value ? 600 : 1200);
 
-  if (questionIndex.value >= ROUND_Q) {
+  if (questionIdx.value >= ROUND_Q) {
+    // End of quiz round
     if (checkAdvance(props.lessonId)) {
-      unlockNextLesson(props.lessonId);
-      phase.value = 'levelup';
+      // Ready for challenge
+      phase.value = 'challenge-intro';
     } else {
       phase.value = 'result';
     }
   } else {
-    await nextQuestion();
+    await nextQuizQuestion();
   }
 }
 
-function restart() {
-  questionIndex.value = 0;
+function restartQuiz() {
+  questionIdx.value = 0;
   phase.value = 'quiz';
-  nextQuestion();
+  nextQuizQuestion();
+}
+
+// ─── Challenge flow ───────────────────────────────────────────────────────────
+async function startChallenge() {
+  lives.value        = MAX_LIVES;
+  challengeIdx.value = 0;
+  phase.value        = 'challenge';
+  await nextChallengeQuestion();
+}
+
+async function nextChallengeQuestion() {
+  answered.value       = false;
+  selectedLetter.value = '';
+  isCorrect.value      = false;
+  replayCount.value    = 0;
+  playingSymbols.value = [];
+
+  currentLetter.value = pickRandomLetter();
+  shuffledPool.value  = shuffle(lesson.value.pool);
+  await animateAndPlay(currentLetter.value);
+}
+
+async function selectChallengeAnswer(letter: string) {
+  if (answered.value || isPlaying.value) return;
+  answered.value       = true;
+  selectedLetter.value = letter;
+  isCorrect.value      = letter === currentLetter.value;
+
+  // Still record for fill purposes
+  recordAnswer(currentLetter.value, isCorrect.value, false, replayCount.value);
+
+  if (isCorrect.value) {
+    morseAudio.playCorrect();
+  } else {
+    morseAudio.playWrong();
+    lives.value--;
+    shakingHeart.value = true;
+    setTimeout(() => { shakingHeart.value = false; }, 500);
+  }
+
+  challengeIdx.value++;
+  await delay(isCorrect.value ? 650 : 1300);
+
+  if (lives.value <= 0) {
+    phase.value = 'challenge-fail';
+    return;
+  }
+
+  if (challengeIdx.value >= CHALLENGE_Q) {
+    unlockNextLesson(props.lessonId);
+    phase.value = 'levelup';
+    return;
+  }
+
+  await nextChallengeQuestion();
+}
+
+async function replayChallenge() {
+  if (isPlaying.value) return;
+  replayCount.value++;
+  playingSymbols.value = [];
+  await animateAndPlay(currentLetter.value);
 }
 
 // ─── Intro ────────────────────────────────────────────────────────────────────
 function startQuiz() {
   phase.value = 'quiz';
-  nextQuestion();
+  nextQuizQuestion();
 }
 
 function playIntroLetter(letter: string) {
   morseAudio.playSequence(MORSE_DICT[letter], 120);
 }
 
-// ─── Keyboard spacebar for replay ─────────────────────────────────────────────
+// ─── Keyboard ─────────────────────────────────────────────────────────────────
 function onKey(e: KeyboardEvent) {
-  if (e.code === 'Space' && phase.value === 'quiz' && !answered.value) {
-    e.preventDefault();
-    replay();
-  }
+  if (e.code !== 'Space') return;
+  e.preventDefault();
+  if (phase.value === 'quiz' && !answered.value)      replay();
+  if (phase.value === 'challenge' && !answered.value) replayChallenge();
 }
 
 onMounted(() => window.addEventListener('keydown', onKey));
 onUnmounted(() => window.removeEventListener('keydown', onKey));
-
-// ─── SVG ring helper ──────────────────────────────────────────────────────────
-const RING_R = 26;
-const RING_CIRC = 2 * Math.PI * RING_R;
-function ringOffset(fill: number): number {
-  return RING_CIRC * (1 - fill / 100);
-}
 </script>
 
 <template>
   <div class="game">
 
-    <!-- Header -->
-    <div class="header">
+    <!-- ══ HEADER ══ -->
+    <div class="header" :class="{ 'header-challenge': phase === 'challenge' }">
       <button class="btn-back" @click="emit('back')">‹ Retour</button>
-      <div class="header-center">
+
+      <!-- Quiz header -->
+      <div v-if="phase === 'quiz' || phase === 'intro'" class="header-center">
         <span class="lesson-tag">Leçon {{ lessonId }}</span>
         <span class="lesson-name">{{ lesson.newLetters.join(' & ') }}</span>
       </div>
+
+      <!-- Challenge header -->
+      <div v-else-if="phase === 'challenge'" class="header-center">
+        <span class="lesson-tag challenge-tag">DÉFI</span>
+        <div class="hearts" :class="{ shake: shakingHeart }">
+          <span
+            v-for="i in MAX_LIVES"
+            :key="i"
+            class="heart"
+            :class="{ lost: i > lives }"
+          >♥</span>
+        </div>
+      </div>
+
+      <div v-else class="header-center">
+        <span class="lesson-name">Leçon {{ lessonId }}</span>
+      </div>
+
       <div class="xp-badge">⚡{{ store.totalXP }}</div>
     </div>
 
     <!-- Progress bar -->
-    <div class="progress-track">
-      <div class="progress-fill" :style="{ width: (questionIndex / ROUND_Q * 100) + '%' }"></div>
+    <div class="progress-track" :class="{ 'track-challenge': phase === 'challenge' }">
+      <div
+        class="progress-fill"
+        :style="{
+          width: phase === 'challenge'
+            ? (challengeIdx / CHALLENGE_Q * 100) + '%'
+            : (questionIdx / ROUND_Q * 100) + '%'
+        }"
+      ></div>
     </div>
 
-    <!-- ═══ INTRO PHASE ════════════════════════════════════════════════════ -->
+    <!-- ══ INTRO ══ -->
     <div v-if="phase === 'intro'" class="intro">
-      <div class="intro-title">Nouvelles lettres</div>
+      <div class="section-label">Nouvelles lettres</div>
       <div class="intro-cards">
         <div
           v-for="letter in lesson.newLetters"
@@ -203,50 +304,37 @@ function ringOffset(fill: number): number {
         </div>
       </div>
       <div class="intro-pool-preview" v-if="lesson.pool.length > 2">
-        <div class="pool-label">Révision incluse :</div>
+        <div class="pool-label">Révision incluse</div>
         <div class="pool-letters">
-          <span v-for="l in lesson.pool.filter(x => !lesson.newLetters.includes(x))" :key="l" class="pool-l">{{ l }}</span>
+          <span
+            v-for="l in lesson.pool.filter(x => !lesson.newLetters.includes(x))"
+            :key="l"
+            class="pool-l"
+          >{{ l }}</span>
         </div>
       </div>
-      <button class="btn-start" @click="startQuiz">Commencer</button>
+      <button class="btn-primary" @click="startQuiz">Commencer</button>
     </div>
 
-    <!-- ═══ QUIZ PHASE ═════════════════════════════════════════════════════ -->
-    <div v-else-if="phase === 'quiz'" class="quiz">
+    <!-- ══ QUIZ ══ -->
+    <div v-else-if="phase === 'quiz'" class="quiz-body">
 
-      <!-- Morse animation zone -->
       <div class="signal-zone">
         <div class="signal-symbols">
           <TransitionGroup name="sym-pop">
-            <span
-              v-for="(s, i) in playingSymbols"
-              :key="i"
-              class="sym"
-              :class="s === '.' ? 'dot' : 'dash'"
-            ></span>
+            <span v-for="(s, i) in playingSymbols" :key="i" class="sym" :class="s === '.' ? 'dot' : 'dash'"></span>
           </TransitionGroup>
-          <span v-if="!isPlaying && playingSymbols.length === 0" class="sig-placeholder">···</span>
+          <span v-if="!isPlaying && playingSymbols.length === 0" class="sig-empty">· · ·</span>
         </div>
         <div class="signal-actions">
-          <button class="btn-replay" :disabled="isPlaying" @click="replay">
-            <span>▶</span> Réécouter
-          </button>
-          <button class="btn-hint" :class="{ used: hintUsed }" :disabled="answered" @click="showHint">
-            ?
-          </button>
+          <button class="btn-replay" :disabled="isPlaying" @click="replay">▶ Réécouter</button>
+          <button class="btn-hint" :class="{ used: hintUsed }" :disabled="answered" @click="showHint">?</button>
         </div>
       </div>
 
-      <!-- Streak banner -->
-      <div v-if="store.streak >= 3" class="streak-bar">
-        🔥 {{ store.streak }} en série
-      </div>
+      <div v-if="store.streak >= 3" class="streak-bar">🔥 {{ store.streak }} en série</div>
 
-      <!-- Letter grid -->
-      <div
-        class="letter-grid"
-        :class="'cols-' + Math.ceil(Math.sqrt(shuffledPool.length))"
-      >
+      <div class="letter-grid" :class="'cols-' + Math.ceil(Math.sqrt(shuffledPool.length))">
         <button
           v-for="letter in shuffledPool"
           :key="letter"
@@ -258,68 +346,151 @@ function ringOffset(fill: number): number {
             'btn-new':     lesson.newLetters.includes(letter),
           }"
           :disabled="answered || isPlaying"
-          @click="selectAnswer(letter)"
+          @click="selectQuizAnswer(letter)"
         >
-          <!-- SVG progress ring -->
           <svg class="ring" viewBox="0 0 64 64">
             <circle class="ring-bg" cx="32" cy="32" :r="RING_R" />
-            <circle
-              class="ring-fill"
-              cx="32" cy="32"
-              :r="RING_R"
+            <circle class="ring-fill" cx="32" cy="32" :r="RING_R"
               :stroke-dasharray="RING_CIRC"
-              :stroke-dashoffset="ringOffset(getFill(letter))"
-            />
+              :stroke-dashoffset="ringOffset(getFill(letter))" />
           </svg>
           <span class="btn-char">{{ letter }}</span>
           <span v-if="lesson.newLetters.includes(letter)" class="new-dot"></span>
         </button>
       </div>
 
-      <!-- Feedback -->
       <Transition name="fade">
         <div v-if="answered" class="feedback" :class="isCorrect ? 'fb-ok' : 'fb-err'">
-          <template v-if="isCorrect">Correct !</template>
-          <template v-else>
-            C'était <strong>{{ currentLetter }}</strong> = {{ MORSE_DICT[currentLetter] }}
-          </template>
+          <span v-if="isCorrect">Correct !</span>
+          <span v-else>C'était <strong>{{ currentLetter }}</strong> — {{ MORSE_DICT[currentLetter] }}</span>
         </div>
       </Transition>
     </div>
 
-    <!-- ═══ RESULT PHASE ════════════════════════════════════════════════════ -->
-    <div v-else-if="phase === 'result'" class="result-screen">
-      <div class="result-emoji">📡</div>
-      <div class="result-title">Bonne session !</div>
-      <div class="result-sub">Continue à pratiquer pour débloquer la leçon suivante.</div>
-      <div class="result-letter-grid">
-        <div v-for="l in lesson.pool" :key="l" class="rl-item">
-          <svg viewBox="0 0 64 64" class="rl-ring">
+    <!-- ══ RESULT (not ready for challenge yet) ══ -->
+    <div v-else-if="phase === 'result'" class="end-screen">
+      <div class="end-icon">📡</div>
+      <div class="end-title">Continue comme ça !</div>
+      <div class="end-sub">Pratique encore pour débloquer le défi.</div>
+      <div class="ring-grid">
+        <div v-for="l in lesson.pool" :key="l" class="rg-item">
+          <svg viewBox="0 0 64 64" class="rg-ring">
             <circle class="ring-bg" cx="32" cy="32" :r="RING_R" />
             <circle class="ring-fill" cx="32" cy="32" :r="RING_R"
-              :stroke-dasharray="RING_CIRC"
-              :stroke-dashoffset="ringOffset(getFill(l))" />
+              :stroke-dasharray="RING_CIRC" :stroke-dashoffset="ringOffset(getFill(l))" />
           </svg>
-          <span class="rl-char">{{ l }}</span>
+          <span class="rg-char">{{ l }}</span>
         </div>
       </div>
-      <div class="result-actions">
-        <button class="btn-start" @click="restart">Rejouer</button>
-        <button class="btn-home" @click="emit('back')">Accueil</button>
+      <div class="end-actions">
+        <button class="btn-primary" @click="restartQuiz">Rejouer</button>
+        <button class="btn-secondary" @click="emit('back')">Accueil</button>
       </div>
     </div>
 
-    <!-- ═══ LEVEL UP PHASE ══════════════════════════════════════════════════ -->
-    <div v-else-if="phase === 'levelup'" class="levelup-screen">
-      <div class="lu-glow">🏆</div>
-      <div class="lu-title">Leçon {{ lessonId }} terminée !</div>
-      <div class="lu-sub" v-if="lessonId < 13">
+    <!-- ══ CHALLENGE INTRO ══ -->
+    <div v-else-if="phase === 'challenge-intro'" class="end-screen">
+      <div class="end-icon">⚔️</div>
+      <div class="end-title">Prêt pour le défi ?</div>
+      <div class="end-sub">
+        {{ CHALLENGE_Q }} questions · 3 vies · pas d'indice<br>
+        Toutes les lettres apprises sont testées.
+      </div>
+      <div class="challenge-lives-preview">
+        <span v-for="i in MAX_LIVES" :key="i" class="heart">♥</span>
+      </div>
+      <div class="end-actions">
+        <button class="btn-challenge" @click="startChallenge">C'est parti !</button>
+        <button class="btn-secondary" @click="restartQuiz">Encore s'entraîner</button>
+      </div>
+    </div>
+
+    <!-- ══ CHALLENGE ══ -->
+    <div v-else-if="phase === 'challenge'" class="quiz-body">
+
+      <div class="signal-zone signal-challenge">
+        <div class="signal-symbols">
+          <TransitionGroup name="sym-pop">
+            <span v-for="(s, i) in playingSymbols" :key="i" class="sym sym-red" :class="s === '.' ? 'dot' : 'dash'"></span>
+          </TransitionGroup>
+          <span v-if="!isPlaying && playingSymbols.length === 0" class="sig-empty">· · ·</span>
+        </div>
+        <div class="signal-actions">
+          <button class="btn-replay btn-replay-red" :disabled="isPlaying" @click="replayChallenge">▶ Réécouter</button>
+        </div>
+      </div>
+
+      <!-- Question counter -->
+      <div class="challenge-counter">{{ challengeIdx + 1 }} / {{ CHALLENGE_Q }}</div>
+
+      <div class="letter-grid" :class="'cols-' + Math.ceil(Math.sqrt(shuffledPool.length))">
+        <button
+          v-for="letter in shuffledPool"
+          :key="letter"
+          class="letter-btn"
+          :class="{
+            'btn-correct': answered && letter === currentLetter,
+            'btn-wrong':   answered && letter === selectedLetter && letter !== currentLetter,
+            'btn-dim':     answered && letter !== selectedLetter && letter !== currentLetter,
+          }"
+          :disabled="answered || isPlaying"
+          @click="selectChallengeAnswer(letter)"
+        >
+          <svg class="ring" viewBox="0 0 64 64">
+            <circle class="ring-bg" cx="32" cy="32" :r="RING_R" />
+            <circle class="ring-fill ring-fill-red" cx="32" cy="32" :r="RING_R"
+              :stroke-dasharray="RING_CIRC"
+              :stroke-dashoffset="ringOffset(getFill(letter))" />
+          </svg>
+          <span class="btn-char">{{ letter }}</span>
+        </button>
+      </div>
+
+      <Transition name="fade">
+        <div v-if="answered" class="feedback" :class="isCorrect ? 'fb-ok' : 'fb-err'">
+          <span v-if="isCorrect">Correct ! ({{ lives }}/{{ MAX_LIVES }} ♥)</span>
+          <span v-else>C'était <strong>{{ currentLetter }}</strong> — {{ MORSE_DICT[currentLetter] }}</span>
+        </div>
+      </Transition>
+    </div>
+
+    <!-- ══ CHALLENGE FAIL ══ -->
+    <div v-else-if="phase === 'challenge-fail'" class="end-screen">
+      <div class="end-icon">💔</div>
+      <div class="end-title">Défi échoué</div>
+      <div class="end-sub">
+        Plus de vies… Entraîne-toi encore et réessaie !
+      </div>
+      <div class="ring-grid">
+        <div v-for="l in lesson.pool" :key="l" class="rg-item">
+          <svg viewBox="0 0 64 64" class="rg-ring">
+            <circle class="ring-bg" cx="32" cy="32" :r="RING_R" />
+            <circle class="ring-fill" cx="32" cy="32" :r="RING_R"
+              :stroke-dasharray="RING_CIRC" :stroke-dashoffset="ringOffset(getFill(l))" />
+          </svg>
+          <span class="rg-char">{{ l }}</span>
+        </div>
+      </div>
+      <div class="end-actions">
+        <button class="btn-challenge" @click="startChallenge">Réessayer le défi</button>
+        <button class="btn-secondary" @click="restartQuiz">S'entraîner d'abord</button>
+        <button class="btn-secondary" @click="emit('back')">Accueil</button>
+      </div>
+    </div>
+
+    <!-- ══ LEVEL UP ══ -->
+    <div v-else-if="phase === 'levelup'" class="end-screen">
+      <div class="end-icon">🏆</div>
+      <div class="end-title">Défi réussi !</div>
+      <div class="end-sub" v-if="lessonId < 13">
         Leçon {{ lessonId + 1 }} débloquée !
       </div>
-      <div class="lu-sub" v-else>Tu as maîtrisé l'alphabet Morse !</div>
-      <div class="result-actions">
-        <button class="btn-start" @click="emit('lesson-done')">Continuer</button>
-        <button class="btn-home" @click="emit('back')">Accueil</button>
+      <div class="end-sub" v-else>
+        Tu as maîtrisé tout l'alphabet Morse !
+      </div>
+      <div class="end-actions">
+        <button class="btn-primary" @click="emit('lesson-done')">Continuer</button>
+        <button class="btn-secondary" @click="emit('back')">Accueil</button>
       </div>
     </div>
 
@@ -335,7 +506,7 @@ function ringOffset(fill: number): number {
   flex-direction: column;
 }
 
-/* Header */
+/* ── HEADER ─────────────────────────────────────────────────────────────────── */
 .header {
   display: flex;
   align-items: center;
@@ -343,13 +514,19 @@ function ringOffset(fill: number): number {
   padding: 0.7rem 1rem;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.header-challenge {
+  background: rgba(255, 69, 58, 0.06);
+  border-bottom-color: rgba(255, 69, 58, 0.25);
 }
 
 .header-center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.1rem;
+  gap: 0.15rem;
 }
 
 .lesson-tag {
@@ -359,6 +536,8 @@ function ringOffset(fill: number): number {
   text-transform: uppercase;
 }
 
+.challenge-tag { color: var(--red); }
+
 .lesson-name {
   font-size: 1rem;
   font-weight: 700;
@@ -367,24 +546,58 @@ function ringOffset(fill: number): number {
 .xp-badge {
   font-size: 0.75rem;
   color: var(--accent);
+  font-weight: 700;
   min-width: 55px;
   text-align: right;
-  font-weight: 700;
 }
 
-/* Progress */
+/* Hearts */
+.hearts {
+  display: flex;
+  gap: 4px;
+}
+
+.heart {
+  font-size: 1.3rem;
+  color: var(--red);
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.heart.lost {
+  color: var(--border);
+  opacity: 0.4;
+}
+
+@keyframes heartShake {
+  0%   { transform: translateX(0); }
+  20%  { transform: translateX(-6px) scale(1.2); }
+  40%  { transform: translateX(6px); }
+  60%  { transform: translateX(-4px); }
+  80%  { transform: translateX(4px); }
+  100% { transform: translateX(0); }
+}
+
+.hearts.shake { animation: heartShake 0.45s ease; }
+
+/* ── PROGRESS ───────────────────────────────────────────────────────────────── */
 .progress-track {
   height: 3px;
   background: var(--border);
   flex-shrink: 0;
 }
+
 .progress-fill {
   height: 100%;
   background: var(--accent);
   transition: width 0.35s ease;
 }
 
-/* ─── INTRO ──────────────────────────────────────────────────────────────── */
+.track-challenge .progress-fill {
+  background: var(--red);
+}
+
+/* ── INTRO ──────────────────────────────────────────────────────────────────── */
 .intro {
   flex: 1;
   display: flex;
@@ -394,8 +607,8 @@ function ringOffset(fill: number): number {
   gap: 1.5rem;
 }
 
-.intro-title {
-  font-size: 0.7rem;
+.section-label {
+  font-size: 0.65rem;
   letter-spacing: 2px;
   color: var(--text-dim);
   text-transform: uppercase;
@@ -468,7 +681,7 @@ function ringOffset(fill: number): number {
 }
 
 .pool-label {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -490,27 +703,51 @@ function ringOffset(fill: number): number {
   font-weight: 700;
 }
 
-.btn-start {
+/* ── BUTTONS ────────────────────────────────────────────────────────────────── */
+.btn-primary {
   background: var(--accent);
   color: #000;
   border: none;
-  padding: 1rem 3rem;
+  padding: 1rem;
   border-radius: 16px;
   font-size: 1rem;
   font-weight: 800;
   width: 100%;
   max-width: 320px;
 }
+.btn-primary:active { opacity: 0.85; transform: scale(0.97); }
 
-.btn-start:active { opacity: 0.85; transform: scale(0.97); }
+.btn-challenge {
+  background: var(--red);
+  color: #fff;
+  border: none;
+  padding: 1rem;
+  border-radius: 16px;
+  font-size: 1rem;
+  font-weight: 800;
+  width: 100%;
+  max-width: 320px;
+}
+.btn-challenge:active { opacity: 0.85; transform: scale(0.97); }
 
-/* ─── QUIZ ───────────────────────────────────────────────────────────────── */
-.quiz {
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.85rem;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  width: 100%;
+  max-width: 320px;
+}
+
+/* ── QUIZ / CHALLENGE SHARED BODY ───────────────────────────────────────────── */
+.quiz-body {
   flex: 1;
   display: flex;
   flex-direction: column;
   padding: 1rem 1rem 1.5rem;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 /* Signal zone */
@@ -518,20 +755,22 @@ function ringOffset(fill: number): number {
   background: #000;
   border: 1.5px solid var(--border);
   border-radius: 16px;
-  padding: 1.4rem 1rem 1rem;
+  padding: 1.3rem 1rem 1rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.9rem;
-  min-height: 120px;
+  gap: 0.8rem;
+  min-height: 110px;
   justify-content: center;
 }
+
+.signal-challenge { border-color: rgba(255,69,58,0.35); }
 
 .signal-symbols {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 28px;
+  min-height: 24px;
   flex-wrap: wrap;
   justify-content: center;
 }
@@ -540,15 +779,19 @@ function ringOffset(fill: number): number {
   background: var(--accent);
   display: block;
   border-radius: 50px;
-  box-shadow: 0 0 10px rgba(245,197,66,0.4);
+  box-shadow: 0 0 10px rgba(245,197,66,0.35);
 }
-.sym.dot  { width: 18px; height: 18px; border-radius: 50%; }
-.sym.dash { width: 54px; height: 18px; }
+.sym-red {
+  background: #ff6b6b;
+  box-shadow: 0 0 10px rgba(255,69,58,0.35);
+}
+.sym.dot  { width: 16px; height: 16px; border-radius: 50%; }
+.sym.dash { width: 50px; height: 16px; }
 
-.sig-placeholder {
-  font-size: 1.5rem;
+.sig-empty {
+  font-size: 1.3rem;
   color: var(--text-muted);
-  letter-spacing: 6px;
+  letter-spacing: 5px;
 }
 
 .signal-actions {
@@ -561,26 +804,23 @@ function ringOffset(fill: number): number {
   background: transparent;
   border: 1.5px solid var(--accent);
   color: var(--accent);
-  padding: 0.45rem 1.2rem;
+  padding: 0.4rem 1rem;
   border-radius: 20px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  transition: background 0.1s;
 }
+.btn-replay:not(:disabled):active { background: var(--accent); color: #000; }
+.btn-replay:disabled { opacity: 0.35; }
 
-.btn-replay:not(:disabled):active {
-  background: var(--accent);
-  color: #000;
+.btn-replay-red {
+  border-color: var(--red);
+  color: var(--red);
 }
-
-.btn-replay:disabled { opacity: 0.4; }
+.btn-replay-red:not(:disabled):active { background: var(--red); color: #fff; }
 
 .btn-hint {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: var(--surface2);
   border: 1.5px solid var(--border);
@@ -591,34 +831,37 @@ function ringOffset(fill: number): number {
   align-items: center;
   justify-content: center;
 }
-
-.btn-hint.used {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.btn-hint:disabled { opacity: 0.35; }
+.btn-hint.used { border-color: var(--accent); color: var(--accent); }
+.btn-hint:disabled { opacity: 0.3; }
 
 /* Streak */
 .streak-bar {
-  background: rgba(245,197,66,0.12);
-  border: 1px solid rgba(245,197,66,0.25);
+  background: rgba(245,197,66,0.1);
+  border: 1px solid rgba(245,197,66,0.2);
   border-radius: 8px;
-  padding: 0.4rem 1rem;
-  font-size: 0.8rem;
+  padding: 0.35rem 1rem;
+  font-size: 0.78rem;
   color: var(--accent);
   text-align: center;
   font-weight: 600;
 }
 
-/* Letter grid */
+/* Challenge counter */
+.challenge-counter {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--red);
+  letter-spacing: 1.5px;
+  font-weight: 700;
+}
+
+/* ── LETTER GRID ────────────────────────────────────────────────────────────── */
 .letter-grid {
   display: grid;
   gap: 0.5rem;
   flex: 1;
   align-content: start;
 }
-
 .cols-2 { grid-template-columns: repeat(2, 1fr); }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
 .cols-4 { grid-template-columns: repeat(4, 1fr); }
@@ -634,31 +877,22 @@ function ringOffset(fill: number): number {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s, transform 0.08s;
+  transition: border-color 0.1s, background 0.1s, transform 0.08s;
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
   padding: 0;
 }
 
 .letter-btn:not(:disabled):not(.btn-correct):not(.btn-wrong):not(.btn-dim):active {
-  transform: scale(0.9);
+  transform: scale(0.88);
   border-color: var(--accent);
 }
 
-.letter-btn:disabled:not(.btn-correct):not(.btn-wrong) { opacity: 0.55; }
+.letter-btn:disabled:not(.btn-correct):not(.btn-wrong) { opacity: 0.5; }
 
-.btn-correct {
-  background: var(--green-dim);
-  border-color: var(--green) !important;
-}
-
-.btn-wrong {
-  background: var(--red-dim);
-  border-color: var(--red) !important;
-}
-
-.btn-dim { opacity: 0.25; }
-
+.btn-correct { background: var(--green-dim); border-color: var(--green) !important; }
+.btn-wrong   { background: var(--red-dim);   border-color: var(--red)   !important; }
+.btn-dim     { opacity: 0.2; }
 .btn-new .btn-char { color: var(--accent); }
 
 /* SVG ring */
@@ -669,20 +903,9 @@ function ringOffset(fill: number): number {
   height: 100%;
   transform: rotate(-90deg);
 }
-
-.ring-bg {
-  fill: none;
-  stroke: var(--ring-bg);
-  stroke-width: 3;
-}
-
-.ring-fill {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 0.5s ease;
-}
+.ring-bg   { fill: none; stroke: var(--ring-bg); stroke-width: 3; }
+.ring-fill { fill: none; stroke: var(--accent);  stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset 0.5s ease; }
+.ring-fill-red { stroke: var(--red); }
 
 .btn-char {
   position: relative;
@@ -705,88 +928,68 @@ function ringOffset(fill: number): number {
 
 /* Feedback */
 .feedback {
-  padding: 0.7rem 1rem;
+  padding: 0.65rem 1rem;
   border-radius: 12px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   text-align: center;
   font-weight: 600;
 }
+.fb-ok  { background: var(--green-dim); border: 1px solid var(--green); color: var(--green); }
+.fb-err { background: var(--red-dim);   border: 1px solid var(--red);   color: var(--red);   }
 
-.fb-ok {
-  background: var(--green-dim);
-  border: 1px solid var(--green);
-  color: var(--green);
-}
-
-.fb-err {
-  background: var(--red-dim);
-  border: 1px solid var(--red);
-  color: var(--red);
-}
-
-/* ─── RESULT / LEVEL UP ──────────────────────────────────────────────────── */
-.result-screen,
-.levelup-screen {
+/* ── END SCREENS ────────────────────────────────────────────────────────────── */
+.end-screen {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 2.5rem 1.2rem;
+  padding: 2.5rem 1.2rem 2rem;
   gap: 1rem;
 }
 
-.result-emoji,
-.lu-glow {
-  font-size: 4rem;
-  line-height: 1;
-}
+.end-icon  { font-size: 4rem; line-height: 1; }
+.end-title { font-size: 1.5rem; font-weight: 800; }
+.end-sub   { font-size: 0.85rem; color: var(--text-dim); text-align: center; max-width: 270px; line-height: 1.5; }
 
-.result-title,
-.lu-title {
-  font-size: 1.4rem;
-  font-weight: 800;
-}
-
-.result-sub,
-.lu-sub {
-  font-size: 0.85rem;
-  color: var(--text-dim);
-  text-align: center;
-  max-width: 260px;
-}
-
-.result-letter-grid {
+.challenge-lives-preview {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  justify-content: center;
-  max-width: 320px;
+  gap: 0.5rem;
   margin: 0.5rem 0;
 }
+.challenge-lives-preview .heart { font-size: 2rem; }
 
-.rl-item {
+.ring-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  max-width: 320px;
+  margin: 0.3rem 0;
+}
+
+.rg-item {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.rl-ring {
+.rg-ring {
   position: absolute;
   inset: 0;
   transform: rotate(-90deg);
 }
 
-.rl-char {
+.rg-char {
   position: relative;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 800;
   z-index: 1;
 }
 
-.result-actions {
+.end-actions {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -795,27 +998,19 @@ function ringOffset(fill: number): number {
   margin-top: auto;
 }
 
-.btn-home {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  padding: 0.85rem;
-  border-radius: 14px;
-  font-size: 0.9rem;
-  width: 100%;
-}
-
-/* Transitions */
+/* ── TRANSITIONS ────────────────────────────────────────────────────────────── */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.fade-enter-from,   .fade-leave-to     { opacity: 0; }
 
-.sym-pop-enter-active { transition: transform 0.15s ease, opacity 0.15s; }
-.sym-pop-enter-from   { transform: scale(0.5); opacity: 0; }
+.sym-pop-enter-active { transition: transform 0.12s ease, opacity 0.12s; }
+.sym-pop-enter-from   { transform: scale(0.4); opacity: 0; }
 
-/* Mobile tweaks */
+/* ── MOBILE ─────────────────────────────────────────────────────────────────── */
 @media (max-width: 360px) {
-  .btn-char { font-size: 1.3rem; }
-  .sym.dash { width: 42px; }
-  .cols-4 { grid-template-columns: repeat(4, 1fr); gap: 0.35rem; }
+  .btn-char   { font-size: 1.25rem; }
+  .sym.dash   { width: 38px; }
+  .letter-btn { border-radius: 10px; }
+  .intro-card { min-width: 110px; padding: 1.2rem 1rem; }
+  .ic-letter  { font-size: 3rem; }
 }
 </style>
