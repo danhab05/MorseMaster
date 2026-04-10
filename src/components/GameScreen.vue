@@ -54,11 +54,26 @@ function ringOffset(fill: number): number {
   return RING_CIRC * (1 - fill / 100);
 }
 
-// ─── Weighted pick (quiz) ─────────────────────────────────────────────────────
-function pickWeightedLetter(): string {
-  const pool = lesson.value.pool;
+// ─── Progressive pool (quiz) ─────────────────────────────────────────────────
+// Q1-2 : nouvelles lettres seulement
+// Q3-4 : + 2 anciennes lettres
+// Q5-6 : + 2 autres … jusqu'au pool complet
+function getProgressivePool(): string[] {
+  const newL = lesson.value.newLetters;
+  // Anciennes lettres : les plus récemment apprises d'abord (plus difficile)
+  const oldL = lesson.value.pool
+    .filter(l => !newL.includes(l))
+    .reverse();
+
+  const step  = Math.floor(questionIdx.value / 2); // 0, 1, 2, …
+  const count = Math.min(step * 2, oldL.length);
+  return shuffle([...newL, ...oldL.slice(0, count)]);
+}
+
+// Pick pondéré dans le pool visible seulement
+function pickWeightedLetter(pool: string[]): string {
   const weights = pool.map(l => Math.max(1, 100 - getFill(l)));
-  const total = weights.reduce((a, b) => a + b, 0);
+  const total   = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
   for (let i = 0; i < pool.length; i++) {
     r -= weights[i];
@@ -102,14 +117,15 @@ async function replay() {
 
 // ─── Quiz flow ────────────────────────────────────────────────────────────────
 async function nextQuizQuestion() {
-  answered.value = false;
+  answered.value       = false;
   selectedLetter.value = '';
-  hintUsed.value = false;
-  replayCount.value = 0;
+  hintUsed.value       = false;
+  replayCount.value    = 0;
   playingSymbols.value = [];
 
-  currentLetter.value = pickWeightedLetter();
-  shuffledPool.value   = shuffle(lesson.value.pool);
+  const pool           = getProgressivePool();   // pool visible pour cette question
+  shuffledPool.value   = pool;
+  currentLetter.value  = pickWeightedLetter(pool);
   await animateAndPlay(currentLetter.value);
 }
 
@@ -332,7 +348,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
         </div>
       </div>
 
-      <div v-if="store.streak >= 3" class="streak-bar">🔥 {{ store.streak }} en série</div>
+      <div class="quiz-info-row">
+        <div v-if="store.streak >= 3" class="streak-bar">🔥 {{ store.streak }} en série</div>
+        <div class="pool-count">{{ shuffledPool.length }} lettre{{ shuffledPool.length > 1 ? 's' : '' }}</div>
+      </div>
 
       <div class="letter-grid" :class="'cols-' + Math.ceil(Math.sqrt(shuffledPool.length))">
         <button
@@ -834,16 +853,33 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
 .btn-hint.used { border-color: var(--accent); color: var(--accent); }
 .btn-hint:disabled { opacity: 0.3; }
 
+/* Quiz info row */
+.quiz-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2rem;
+}
+
 /* Streak */
 .streak-bar {
   background: rgba(245,197,66,0.1);
   border: 1px solid rgba(245,197,66,0.2);
   border-radius: 8px;
-  padding: 0.35rem 1rem;
-  font-size: 0.78rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
   color: var(--accent);
-  text-align: center;
   font-weight: 600;
+  flex: 1;
+}
+
+.pool-count {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* Challenge counter */
